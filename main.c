@@ -6,12 +6,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <time.h>
+#include <stdlib.h>
 
 #define MAX_NAME_LEN 52
 #define MAX_CAT_LEN 20
 #define MAX_DESC_LEN 112
 
-typedef struct Record{
+typedef struct Record {
     int id; //4 bytes
     char inspector[MAX_NAME_LEN]; //52 bytes
     float latitude; //4 bytes
@@ -81,6 +82,11 @@ int check_permission(const char* filepath, const char* role, int require_read, i
     return 0;
 }
 
+void clear_input_buffer() {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
 static void print_usage(const char* action) {
     printf("Usage:\n");
     if (action) {
@@ -103,7 +109,7 @@ int district_exists(const char* district) {
 }
 
 int directory_creation(const char* district) {
-    struct stat st = {0};
+    struct stat st = { 0 };
     if (stat(district, &st) == -1) {
         if (mkdir(district, 0750) == -1) {
             perror("Failed to create directory");
@@ -175,14 +181,14 @@ void add_function(const char* district, const char* role, const char* inspector_
         _exit(1);
     }
 
-    printf("add %s\n",district);
+    printf("add %s\n", district);
     //create record
     Record new_record;
     memset(&new_record, 0, sizeof(Record));
 
     int next_id = 0;
-    struct stat st = {0};
-    if (stat(reports_path, &st) == 0 && st.st_size > 0){
+    struct stat st = { 0 };
+    if (stat(reports_path, &st) == 0 && st.st_size > 0) {
         Record last_record;
         lseek(report_fd, -sizeof(Record), SEEK_END);
         read(report_fd, &last_record, sizeof(Record));
@@ -190,64 +196,106 @@ void add_function(const char* district, const char* role, const char* inspector_
     }
 
     new_record.id = next_id;
-    strcpy(new_record.inspector,inspector_name);
+    strcpy(new_record.inspector, inspector_name);
 
-    printf("X: ");
-    scanf("%f",&new_record.latitude);
+    while (1) {
+        printf("X (Latitude): ");
+        if (scanf("%f", &new_record.latitude) == 1) {
+            clear_input_buffer(); // Clear the enter key
+            break;
+        }
+        printf("Invalid input. Please enter a valid number.\n");
+        clear_input_buffer(); // Clear the garbage text
+    }
 
-    printf("Y: ");
-    scanf("%f",&new_record.longitude);
+    while (1) {
+        printf("Y (Longitude): ");
+        if (scanf("%f", &new_record.longitude) == 1) {
+            clear_input_buffer();
+            break;
+        }
+        printf("Invalid input. Please enter a valid number.\n");
+        clear_input_buffer();
+    }
 
-    printf("Category (road/lighting/flooding/other): ");
-    scanf(" %19s",new_record.category);
+    while (1) {
+        printf("Category (road/lighting/flooding/other): ");
+        scanf(" %19s", new_record.category);
+        clear_input_buffer();
 
-    printf("Severity level (1/2/3): ");
-    scanf("%i",&new_record.severity);
+        if (strcmp(new_record.category, "road") == 0 ||
+            strcmp(new_record.category, "lighting") == 0 ||
+            strcmp(new_record.category, "flooding") == 0 ||
+            strcmp(new_record.category, "other") == 0) {
+            break; // Valid category
+        }
+        printf("Invalid category. Must be one of the specified options.\n");
+    }
+
+    while (1) {
+        printf("Severity level (1/2/3): ");
+        if (scanf("%i", &new_record.severity) == 1 &&
+            (new_record.severity >= 1 && new_record.severity <= 3)) {
+            clear_input_buffer();
+            break;
+        }
+        printf("Invalid severity. Please enter 1, 2, or 3.\n");
+        clear_input_buffer();
+    }
 
     new_record.timestamp = time(NULL);
 
-    printf("Description: ");
-    scanf(" %111[^\n]",new_record.description);
+    while (1) {
+        printf("Description: ");
+        // scanf returns 1 if it successfully reads the string
+        if (scanf(" %111[^\n]", new_record.description) == 1) {
+            clear_input_buffer();
+            break;
+        }
+        printf("Description cannot be empty. Please enter details.\n");
+        clear_input_buffer();
+    }
 
-    write(report_fd, &new_record,sizeof(Record));
+    write(report_fd, &new_record, sizeof(Record));
     close(report_fd);
-    log_operation(district,role,inspector_name,"add");
+    log_operation(district, role, inspector_name, "add");
+    printf("Report ID %d successfully added!\n", new_record.id);
 }
 
 //LIST
-void list_function(const char *district, const char *role, const char* user){
+void list_function(const char* district, const char* role, const char* user) {
 
-    if(!district_exists(district)){
-        fprintf(stderr,"Error: District '%s' does not exits.\n",district);
+    if (!district_exists(district)) {
+        fprintf(stderr, "Error: District '%s' does not exits.\n", district);
         return;
     }
 
     char reports_path[256];
-    snprintf(reports_path, sizeof(reports_path),"%s/reports.dat",district);
+    snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
 
-    if (!check_permission(reports_path,role,1,0)){
+    if (!check_permission(reports_path, role, 1, 0)) {
         return;
     }
 
-    struct stat st = {0};
-    if(stat(reports_path, &st) == -1){
+    struct stat st = { 0 };
+    if (stat(reports_path, &st) == -1) {
         perror("Error: Could not stat reports.dat");
         return;
     }
 
     char perms[11];
-    mode_to_string(st.st_mode,perms);
+    mode_to_string(st.st_mode, perms);
 
     char time_str[64];
-    struct tm *tm_info = localtime(&st.st_mtime);
-    strftime(time_str,sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm_info);
+    struct tm* tm_info = localtime(&st.st_mtime);
+    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm_info);
 
     printf("\n=== District: %s ===\n", district);
-    printf("File Info: %s | Size: %ld bytes | Last Modified: %s\n",perms, (long)st.st_size, time_str);
+    printf("File Info: %s | Size: %ld bytes | Last Modified: %s\n", perms, (long)st.st_size, time_str);
     printf("\n-----------------------------------------------------------\n");
 
     int fd = open(reports_path, O_RDONLY);
-    if (fd == -1){
+    if (fd == -1) {
         perror("Error opening reports.dat for reading");
         return;
     }
@@ -255,20 +303,20 @@ void list_function(const char *district, const char *role, const char* user){
     Record current_record;
     int count = 0;
 
-    while(read(fd, &current_record, sizeof(Record)) == sizeof(Record)){
+    while (read(fd, &current_record, sizeof(Record)) == sizeof(Record)) {
         printf("[ID: %d] %s | Sev: %d | Cat: %s | GPS: (%.4f,%4f)\n",
-        current_record.id,
-        current_record.inspector,
-        current_record.severity,
-        current_record.category,
-        current_record.latitude,
-        current_record.longitude);
-        printf("Description: %s\n",current_record.description);
+            current_record.id,
+            current_record.inspector,
+            current_record.severity,
+            current_record.category,
+            current_record.latitude,
+            current_record.longitude);
+        printf("Description: %s\n", current_record.description);
         printf("-----\n");
         count++;
     }
 
-    if(count == 0){
+    if (count == 0) {
         printf("No reports found in this district.\n");
     }
     printf("Total records: %d\n", count);
@@ -279,8 +327,58 @@ void list_function(const char *district, const char *role, const char* user){
 }
 
 //VIEW
+void view_function(const char* district, const char* role, const char* user, const char* target_id_string) {
+    int target_id = atoi(target_id_string);
 
+    if (!district_exists(district)) {
+        fprintf(stderr, "Error: District '%s' does not exits.\n", district);
+        return;
+    }
 
+    char reports_path[256];
+    snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
+
+    if (!check_permission(reports_path, role, 1, 0)) {
+        return;
+    }
+
+    int fd = open(reports_path, O_RDONLY);
+    if (fd == -1) {
+        perror("Error opening reports.dat");
+        return;
+    }
+
+    Record current_record;
+    int found = 0;
+
+    while (read(fd, &current_record, sizeof(Record)) == sizeof(Record)) {
+        if (current_record.id == target_id) {
+            printf("\n=== Full Report Details (ID: %d) ===\n", current_record.id);
+            printf("Inspector: %s\n", current_record.inspector);
+
+            char time_str[64];
+            struct tm* tm_info = localtime(&current_record.timestamp);
+            strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm_info);
+            printf("Date/Time: %s\n", time_str);
+
+            printf("GPS Coordinates: %.4f, %.4f\n", current_record.latitude, current_record.longitude);
+            printf("Category: %s\n", current_record.category);
+            printf("Severity: %d\n", current_record.severity);
+            printf("Description:\n  %s\n", current_record.description);
+            printf("==============================================\n\n");
+
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found) {
+        printf("Error: Report with ID %d not found in district '%s'.\n", target_id, district);
+    }
+
+    close(fd);
+    log_operation(district, role, user, "view");
+}
 
 //MAIN
 int main(int argc, char** argv) {
@@ -345,7 +443,7 @@ int main(int argc, char** argv) {
             print_usage("--list <district_id>");
             return 1;
         }
-        list_function(district_id,role,user);
+        list_function(district_id, role, user);
         break;
     }
     case view: {
@@ -353,7 +451,7 @@ int main(int argc, char** argv) {
             print_usage("--view <district_id> <report_id>");
             return 1;
         }
-        printf("To do view\n");
+        view_function(district_id, role, user, argv[7]);
         break;
     }
     case remove_report: {
