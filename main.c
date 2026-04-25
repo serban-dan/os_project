@@ -458,6 +458,60 @@ void remove_report_function(const char* district, const char* role, const char* 
     log_operation(district, role, user, "remove_report");
 }
 
+//UPDATE THRESHOLD
+void update_threshold_function(const char *district, const char *role, const char *user, const char *threshold_str){
+    if(strcmp(role, "manager") != 0){
+        fprintf(stderr,"Access Denied: Only managers can update the threshold.\n");
+        return;
+    }
+    int new_threshold = atoi(threshold_str);
+    if(new_threshold < 1){
+        fprintf(stderr,"Invalid threshold value. Must be a positive integer.\n");
+        return;
+    }
+
+    if(!district_exists(district)){
+        fprintf(stderr,"Error: District '%s' does not exist.\n", district);
+        return;
+    }
+
+    char config_path[256];
+    snprintf(config_path, sizeof(config_path), "%s/district.cfg", district);
+
+    struct stat st = { 0 };
+    if(stat(config_path, &st) == -1){
+        perror("Error: Could not stat district.cfg");
+        return;
+    }
+
+    if((st.st_mode & 0777) != 0640){
+        fprintf(stderr,"Error: district.cfg has incorrect permissions. Expected 0640.\n");
+        return;
+    }
+
+    if(!check_permission(config_path, role, 1, 1)){
+        return;
+    }
+
+    int fd = open(config_path, O_WRONLY | O_TRUNC);
+    if(fd == -1){
+        perror("Error opening district.cfg");
+        return;
+    }
+
+    char buffer[32];
+    int len = snprintf(buffer, sizeof(buffer), "%d\n", new_threshold);
+
+    if(write(fd, buffer, len) == -1){
+        perror("Error writing new threshold to district.cfg");
+    }else {
+        printf("Threshold successfully updated to %d for district '%s'.\n", new_threshold, district);
+    }
+
+    close(fd);
+    log_operation(district, role, user, "update_threshold");
+}
+
 //MAIN
 int main(int argc, char** argv) {
     if (argc < 7) {
@@ -545,7 +599,7 @@ int main(int argc, char** argv) {
             print_usage("--update_threshold <district_id> <value>");
             return 1;
         }
-        printf("To do update\n");
+        update_threshold_function(district_id, role, user, argv[7]);
         break;
     }
     case filter: {
