@@ -7,6 +7,21 @@
 #include <fcntl.h>
 #include <time.h>
 
+#define MAX_NAME_LEN 52
+#define MAX_CAT_LEN 20
+#define MAX_DESC_LEN 112
+
+typedef struct Record{
+    int id; //4 bytes
+    char inspector[MAX_NAME_LEN]; //52 bytes
+    float latitude; //4 bytes
+    float longitude; //4 bytes
+    char category[MAX_CAT_LEN]; //20 bytes
+    int severity; //4 bytes
+    time_t timestamp; //8 bytes
+    char description[MAX_DESC_LEN]; //112 bytes
+} Record;
+
 enum Operation {
     add,
     list,
@@ -88,7 +103,7 @@ int district_exists(const char* district) {
 }
 
 int directory_creation(const char* district) {
-    struct stat st = { 0 };
+    struct stat st = {0};
     if (stat(district, &st) == -1) {
         if (mkdir(district, 0750) == -1) {
             perror("Failed to create directory");
@@ -154,14 +169,46 @@ void add_function(const char* district, const char* role, const char* inspector_
     char reports_path[256];
     snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
 
-    int report_fd = open(reports_path, O_WRONLY | O_CREAT | O_APPEND, 0664);
+    int report_fd = open(reports_path, O_RDWR | O_CREAT | O_APPEND, 0664);
     if (report_fd == -1) {
         perror("Fatal: Could not open reports.dat");
         _exit(1);
     }
 
-    printf("add %s",district);
+    printf("add %s\n",district);
+    //create record
+    Record new_record;
 
+    int next_id = 0;
+    struct stat st = {0};
+    if (stat(reports_path, &st) == 0 && st.st_size > 0){
+        Record last_record;
+        lseek(report_fd, -sizeof(Record), SEEK_END);
+        read(report_fd, &last_record, sizeof(Record));
+        next_id = last_record.id + 1;
+    }
+
+    new_record.id = next_id;
+    strcpy(new_record.inspector,inspector_name);
+
+    printf("X: ");
+    scanf("%f",&new_record.latitude);
+
+    printf("Y: ");
+    scanf("%f",&new_record.longitude);
+
+    printf("Category (road/lighting/flooding/other): ");
+    scanf("%s",new_record.category);
+
+    printf("Severity level (1/2/3)");
+    scanf("%i",&new_record.severity);
+
+    //add timestamp
+
+    printf("Description: ");
+    scanf("%s",new_record.description);
+
+    write(report_fd, &new_record,sizeof(Record));
     close(report_fd);
     log_operation(district,role,inspector_name,"add");
 }
