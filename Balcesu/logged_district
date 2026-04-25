@@ -8,3 +8,7 @@
 [1777151889] Role: manager | User: Florin | Action: add
 [1777151921] Role: manager | User: Florin | Action: add
 [1777151947] Role: manager | User: Florin | Action: list
+[1777152845] Role: manager | User: Florin | Action: list
+[1777154315] Role: manager | User: Florin | Action: list
+[1777154339] Role: manager | User: Florin | Action: remove_report
+[1777154342] Role: manager | User: Florin | Action: list

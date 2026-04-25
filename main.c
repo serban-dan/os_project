@@ -189,6 +189,10 @@ void add_function(const char* district, const char* role, const char* inspector_
     int next_id = 0;
     struct stat st = { 0 };
     if (stat(reports_path, &st) == 0 && st.st_size > 0) {
+        if (!check_permission(reports_path, role, 0, 1)) {
+            _exit(1);
+        }
+
         Record last_record;
         lseek(report_fd, -sizeof(Record), SEEK_END);
         read(report_fd, &last_record, sizeof(Record));
@@ -199,17 +203,17 @@ void add_function(const char* district, const char* role, const char* inspector_
     strcpy(new_record.inspector, inspector_name);
 
     while (1) {
-        printf("X (Latitude): ");
+        printf("X: ");
         if (scanf("%f", &new_record.latitude) == 1) {
-            clear_input_buffer(); // Clear the enter key
+            clear_input_buffer();
             break;
         }
         printf("Invalid input. Please enter a valid number.\n");
-        clear_input_buffer(); // Clear the garbage text
+        clear_input_buffer();
     }
 
     while (1) {
-        printf("Y (Longitude): ");
+        printf("Y: ");
         if (scanf("%f", &new_record.longitude) == 1) {
             clear_input_buffer();
             break;
@@ -227,7 +231,7 @@ void add_function(const char* district, const char* role, const char* inspector_
             strcmp(new_record.category, "lighting") == 0 ||
             strcmp(new_record.category, "flooding") == 0 ||
             strcmp(new_record.category, "other") == 0) {
-            break; // Valid category
+            break;
         }
         printf("Invalid category. Must be one of the specified options.\n");
     }
@@ -247,7 +251,6 @@ void add_function(const char* district, const char* role, const char* inspector_
 
     while (1) {
         printf("Description: ");
-        // scanf returns 1 if it successfully reads the string
         if (scanf(" %111[^\n]", new_record.description) == 1) {
             clear_input_buffer();
             break;
@@ -380,6 +383,81 @@ void view_function(const char* district, const char* role, const char* user, con
     log_operation(district, role, user, "view");
 }
 
+//REMOVE
+void remove_report_function(const char* district, const char* role, const char* user, const char* target_id_string) {
+    if(strcmp(role, "manager") != 0) {
+        fprintf(stderr, "Access Denied: Only managers can remove reports.\n");
+        return;
+    }
+
+    int target_id = atoi(target_id_string);
+
+    if (!district_exists(district)) {
+        fprintf(stderr, "Error: District '%s' does not exits.\n", district);
+        return;
+    }
+
+    char reports_path[256];
+    snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
+
+    if(!check_permission(reports_path, role, 1, 1)) {
+        return;
+    }
+
+    int fd = open(reports_path, O_RDWR);
+    if (fd == -1) {
+        perror("Error opening reports.dat");
+        return;
+    }
+
+    Record current_record;
+    int found_index = -1;
+    int current_index = 0;
+
+    while (read(fd, &current_record, sizeof(Record)) == sizeof(Record)) {
+        if (current_record.id == target_id) {
+            found_index = current_index;
+            break;
+        }
+        current_index++;
+    }
+
+    if(found_index == -1) {
+        printf("Error: Report with ID %d not found in district '%s'.\n", target_id, district);
+        close(fd);
+        return;
+    }
+
+    off_t read_pos = (found_index + 1) * sizeof(Record);
+    off_t write_pos = found_index * sizeof(Record);
+
+    Record temp_record;
+    while(1){
+        lseek(fd, read_pos, SEEK_SET);
+        if(read(fd, &temp_record, sizeof(Record)) != sizeof(Record)) {
+            break;
+        }
+
+        lseek(fd, write_pos, SEEK_SET);
+        write(fd, &temp_record, sizeof(Record));
+
+        read_pos += sizeof(Record);
+        write_pos += sizeof(Record);
+    }
+
+    struct stat st = { 0 };
+    fstat(fd, &st);
+
+    if(ftruncate(fd, st.st_size - sizeof(Record)) == -1) {
+        perror("Error truncating file");
+    }else {
+        printf("Report with ID %d successfully removed from district '%s'.\n", target_id, district);
+    }
+
+    close(fd);
+    log_operation(district, role, user, "remove_report");
+}
+
 //MAIN
 int main(int argc, char** argv) {
     if (argc < 7) {
@@ -459,7 +537,7 @@ int main(int argc, char** argv) {
             print_usage("--remove_report <district_id> <report_id>");
             return 1;
         }
-        printf("To do remove\n");
+        remove_report_function(district_id, role, user, argv[7]);
         break;
     }
     case update_threshold: {
