@@ -199,7 +199,7 @@ void add_function(const char* district, const char* role, const char* inspector_
     scanf("%f",&new_record.longitude);
 
     printf("Category (road/lighting/flooding/other): ");
-    scanf(" %[^\n]",new_record.category);
+    scanf(" %19s",new_record.category);
 
     printf("Severity level (1/2/3): ");
     scanf("%i",&new_record.severity);
@@ -207,12 +207,80 @@ void add_function(const char* district, const char* role, const char* inspector_
     new_record.timestamp = time(NULL);
 
     printf("Description: ");
-    scanf(" %[^\n]",new_record.description);
+    scanf(" %111[^\n]",new_record.description);
 
     write(report_fd, &new_record,sizeof(Record));
     close(report_fd);
     log_operation(district,role,inspector_name,"add");
 }
+
+//LIST
+void list_function(const char *district, const char *role, const char* user){
+
+    if(!district_exists(district)){
+        fprintf(stderr,"Error: District '%s' does not exits.\n",district);
+        return;
+    }
+
+    char reports_path[256];
+    snprintf(reports_path, sizeof(reports_path),"%s/reports.dat",district);
+
+    if (!check_permission(reports_path,role,1,0)){
+        return;
+    }
+
+    struct stat st = {0};
+    if(stat(reports_path, &st) == -1){
+        perror("Error: Could not stat reports.dat");
+        return;
+    }
+
+    char perms[11];
+    mode_to_string(st.st_mode,perms);
+
+    char time_str[64];
+    struct tm *tm_info = localtime(&st.st_mtime);
+    strftime(time_str,sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm_info);
+
+    printf("\n=== District: %s ===\n", district);
+    printf("File Info: %s | Size: %ld bytes | Last Modified: %s\n",perms, (long)st.st_size, time_str);
+    printf("\n-----------------------------------------------------------\n");
+
+    int fd = open(reports_path, O_RDONLY);
+    if (fd == -1){
+        perror("Error opening reports.dat for reading");
+        return;
+    }
+
+    Record current_record;
+    int count = 0;
+
+    while(read(fd, &current_record, sizeof(Record)) == sizeof(Record)){
+        printf("[ID: %d] %s | Sev: %d | Cat: %s | GPS: (%.4f,%4f)\n",
+        current_record.id,
+        current_record.inspector,
+        current_record.severity,
+        current_record.category,
+        current_record.latitude,
+        current_record.longitude);
+        printf("Description: %s\n",current_record.description);
+        printf("-----\n");
+        count++;
+    }
+
+    if(count == 0){
+        printf("No reports found in this district.\n");
+    }
+    printf("Total records: %d\n", count);
+    printf("==========================\n\n");
+
+    close(fd);
+    log_operation(district, role, user, "list");
+}
+
+//VIEW
+
+
 
 //MAIN
 int main(int argc, char** argv) {
@@ -277,7 +345,7 @@ int main(int argc, char** argv) {
             print_usage("--list <district_id>");
             return 1;
         }
-        printf("To do list\n");
+        list_function(district_id,role,user);
         break;
     }
     case view: {
