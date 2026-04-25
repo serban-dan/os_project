@@ -4,6 +4,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <time.h>
 
 enum Operation{
     add,
@@ -25,6 +27,41 @@ void mode_to_string(mode_t mode, char *str) {
     str[7] = (mode & S_IWOTH) ? 'w' : '-';
     str[8] = (mode & S_IXOTH) ? 'x' : '-';
     str[9] = '\0';
+}
+
+int check_permission(const char *filepath, const char *role, int require_read, int require_write){
+    struct stat st = {0};
+
+    if(stat(filepath, &st) == -1){
+        perror("Error checking file permissions");
+        return 0;
+    }
+
+    if(strcmp(role,"manager") == 0){
+        if (require_read && !(st.st_mode & S_IRUSR)){
+            fprintf(stderr,"Access Denied: Manager lacks read permission on %s\n",filepath);
+            return 0;
+        }
+        if (require_write && !(st.st_mode & S_IWUSR)){
+            fprintf(stderr,"Access Denied: Manager lacks write permission on %s\n",filepath);
+            return 0;
+        }
+        return 1;
+    } else
+
+    if(strcmp(role,"inspector") == 0){
+        if (require_read && !(st.st_mode & S_IRGRP)){
+            fprintf(stderr,"Access Denied: Inspector lacks read permission on %s\n",filepath);
+            return 0;
+        }
+        if (require_write && !(st.st_mode & S_IWGRP)){
+            fprintf(stderr,"Access Denied: Inspector lacks write permission on %s\n",filepath);
+            return 0;
+        }
+        return 1;
+    }
+
+    return 0;
 }
 
 static void print_usage(const char *action) {
@@ -71,7 +108,22 @@ void log_operation(const char *district,const char *role, const char *user, cons
     char filepath[256];
     char buffer[512];
 
-    snprintf(filepath, sizeof(filepath), "%s/", district);
+    snprintf(filepath, sizeof(filepath), "%s/logged_district", district);
+
+    int fd = open(filepath, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd == -1) {
+        perror("Failed to open log file");
+        return;
+    }
+
+    time_t now = time(NULL);
+    int len = snprintf(buffer, sizeof(buffer), "[%ld] Role: %s | User: %s | Action: %s\n", (long)now, role, user, action);
+    if(len > 0){
+        if (write(fd, buffer, len) == -1) {
+            perror("Failed to write to log file");
+        }
+    }
+    close(fd);
 }
 
 int main(int argc, char **argv) {
@@ -158,7 +210,7 @@ int main(int argc, char **argv) {
             break;
         }
         case filter:{
-            if(argc != 8){
+            if(argc < 8){
                 print_usage("--filter <district_id> <condition>");
                 return 1;
             }
