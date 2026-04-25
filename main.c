@@ -178,6 +178,7 @@ void add_function(const char* district, const char* role, const char* inspector_
     printf("add %s\n",district);
     //create record
     Record new_record;
+    memset(&new_record, 0, sizeof(Record));
 
     int next_id = 0;
     struct stat st = {0};
@@ -198,15 +199,15 @@ void add_function(const char* district, const char* role, const char* inspector_
     scanf("%f",&new_record.longitude);
 
     printf("Category (road/lighting/flooding/other): ");
-    scanf("%s",new_record.category);
+    scanf(" %[^\n]",new_record.category);
 
-    printf("Severity level (1/2/3)");
+    printf("Severity level (1/2/3): ");
     scanf("%i",&new_record.severity);
 
-    //add timestamp
+    new_record.timestamp = time(NULL);
 
     printf("Description: ");
-    scanf("%s",new_record.description);
+    scanf(" %[^\n]",new_record.description);
 
     write(report_fd, &new_record,sizeof(Record));
     close(report_fd);
