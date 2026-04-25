@@ -7,7 +7,7 @@
 #include <fcntl.h>
 #include <time.h>
 
-enum Operation{
+enum Operation {
     add,
     list,
     view,
@@ -16,7 +16,8 @@ enum Operation{
     filter
 };
 
-void mode_to_string(mode_t mode, char *str) {
+//PERMISSIONS
+void mode_to_string(mode_t mode, char* str) {
     str[0] = (mode & S_IRUSR) ? 'r' : '-';
     str[1] = (mode & S_IWUSR) ? 'w' : '-';
     str[2] = (mode & S_IXUSR) ? 'x' : '-';
@@ -29,82 +30,81 @@ void mode_to_string(mode_t mode, char *str) {
     str[9] = '\0';
 }
 
-int check_permission(const char *filepath, const char *role, int require_read, int require_write){
-    struct stat st = {0};
+int check_permission(const char* filepath, const char* role, int require_read, int require_write) {
+    struct stat st = { 0 };
 
-    if(stat(filepath, &st) == -1){
+    if (stat(filepath, &st) == -1) {
         perror("Error checking file permissions");
         return 0;
     }
 
-    if(strcmp(role,"manager") == 0){
-        if (require_read && !(st.st_mode & S_IRUSR)){
-            fprintf(stderr,"Access Denied: Manager lacks read permission on %s\n",filepath);
+    if (strcmp(role, "manager") == 0) {
+        if (require_read && !(st.st_mode & S_IRUSR)) {
+            fprintf(stderr, "Access Denied: Manager lacks read permission on %s\n", filepath);
             return 0;
         }
-        if (require_write && !(st.st_mode & S_IWUSR)){
-            fprintf(stderr,"Access Denied: Manager lacks write permission on %s\n",filepath);
-            return 0;
-        }
-        return 1;
-    } else
-
-    if(strcmp(role,"inspector") == 0){
-        if (require_read && !(st.st_mode & S_IRGRP)){
-            fprintf(stderr,"Access Denied: Inspector lacks read permission on %s\n",filepath);
-            return 0;
-        }
-        if (require_write && !(st.st_mode & S_IWGRP)){
-            fprintf(stderr,"Access Denied: Inspector lacks write permission on %s\n",filepath);
+        if (require_write && !(st.st_mode & S_IWUSR)) {
+            fprintf(stderr, "Access Denied: Manager lacks write permission on %s\n", filepath);
             return 0;
         }
         return 1;
     }
+    else
+
+        if (strcmp(role, "inspector") == 0) {
+            if (require_read && !(st.st_mode & S_IRGRP)) {
+                fprintf(stderr, "Access Denied: Inspector lacks read permission on %s\n", filepath);
+                return 0;
+            }
+            if (require_write && !(st.st_mode & S_IWGRP)) {
+                fprintf(stderr, "Access Denied: Inspector lacks write permission on %s\n", filepath);
+                return 0;
+            }
+            return 1;
+        }
 
     return 0;
 }
 
-static void print_usage(const char *action) {
+static void print_usage(const char* action) {
     printf("Usage:\n");
     if (action) {
         printf("  city_manager --role <role> --user <user_name> %s\n", action);
-    } else {
+    }
+    else {
         printf("  city_manager --role <role> --user <user_name> --<operation> <district_id>\n");
     }
 }
 
-int district_exists(const char *district) {
-    struct stat st = {0};
-    if(stat(district, &st) == 0 && S_ISDIR(st.st_mode)){
+//DIRECTORY
+int district_exists(const char* district) {
+    struct stat st = { 0 };
+    if (stat(district, &st) == 0 && S_ISDIR(st.st_mode)) {
+        //exists
         return 1;
     }
 
     return 0;
 }
 
-int directory_creation(const char *district) {
-    struct stat st = {0};
-    if(stat(district, &st) == -1){
-        if(mkdir(district, 0750) == -1){
+int directory_creation(const char* district) {
+    struct stat st = { 0 };
+    if (stat(district, &st) == -1) {
+        if (mkdir(district, 0750) == -1) {
             perror("Failed to create directory");
             return -1;
         }
 
-        if(chmod(district, 0750) == -1){
+        if (chmod(district, 0750) == -1) {
             perror("Failed to set permissions");
             return -1;
         }
-        return 0;
-    }else {
-        if(!S_ISDIR(st.st_mode)){
-            fprintf(stderr, "%s exists but is not a directory.\n", district);
-            return -1;
-        }
-        return 0;
     }
+    return 0;
 }
 
-void log_operation(const char *district,const char *role, const char *user, const char *action){
+//LOGS
+void log_operation(const char* district, const char* role, const char* user, const char* action) {
     char filepath[256];
     char buffer[512];
 
@@ -118,7 +118,7 @@ void log_operation(const char *district,const char *role, const char *user, cons
 
     time_t now = time(NULL);
     int len = snprintf(buffer, sizeof(buffer), "[%ld] Role: %s | User: %s | Action: %s\n", (long)now, role, user, action);
-    if(len > 0){
+    if (len > 0) {
         if (write(fd, buffer, len) == -1) {
             perror("Failed to write to log file");
         }
@@ -126,7 +126,48 @@ void log_operation(const char *district,const char *role, const char *user, cons
     close(fd);
 }
 
-int main(int argc, char **argv) {
+//ADD
+void add_function(const char* district, const char* role, const char* inspector_name) {
+
+    if (!district_exists(district)) {
+        //create dir
+        if (directory_creation(district) == -1) {
+            fprintf(stderr, "Fatal: Could not initialize directory.\n");
+            _exit(1);
+        }
+
+        //init ditrict.cfg
+        char config_path[256];
+        snprintf(config_path, sizeof(config_path), "%s/district.cfg", district);
+
+        int cfg_fd = open(config_path, O_WRONLY | O_CREAT | O_EXCL, 0640);
+        if (cfg_fd != -1) {
+            write(cfg_fd, "1\n", 2); //1 is default threshhold value
+            close(cfg_fd);
+        }
+        else {
+            perror("Warning: Failed to create default district.cfg");
+        }
+    }
+
+    //open reports.dat
+    char reports_path[256];
+    snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
+
+    int report_fd = open(reports_path, O_WRONLY | O_CREAT | O_APPEND, 0664);
+    if (report_fd == -1) {
+        perror("Fatal: Could not open reports.dat");
+        _exit(1);
+    }
+
+    printf("add %s",district);
+
+    close(report_fd);
+    log_operation(district,role,inspector_name,"add");
+}
+
+//MAIN
+int main(int argc, char** argv) {
     if (argc < 7) {
         print_usage(NULL);
         return 1;
@@ -137,89 +178,95 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if(strcmp(argv[2],"inspector") != 0 && strcmp(argv[2],"manager") != 0){
-        printf("Role %s does not exist.\n",argv[2]);
+    if (strcmp(argv[2], "inspector") != 0 && strcmp(argv[2], "manager") != 0) {
+        printf("Role %s does not exist.\n", argv[2]);
         return 1;
     }
 
-    const char *role = argv[2];
+    const char* role = argv[2];
 
     if (strcmp(argv[3], "--user") != 0) {
         print_usage(NULL);
         return 1;
     }
 
-    const char *user = argv[4];
-    const char *ops = argv[5];
-    const char *district_id = argv[6];
-    
+    const char* user = argv[4];
+    const char* ops = argv[5];
+    const char* district_id = argv[6];
+
     enum Operation op;
-    if(strcmp(ops,"--add") == 0){
+    if (strcmp(ops, "--add") == 0) {
         op = add;
-    }else if(strcmp(ops,"--list") == 0){
+    }
+    else if (strcmp(ops, "--list") == 0) {
         op = list;
-    }else if(strcmp(ops,"--view") == 0){
+    }
+    else if (strcmp(ops, "--view") == 0) {
         op = view;
-    }else if(strcmp(ops,"--remove_report") == 0){
+    }
+    else if (strcmp(ops, "--remove_report") == 0) {
         op = remove_report;
-    }else if(strcmp(ops,"--update_threshold") == 0){
+    }
+    else if (strcmp(ops, "--update_threshold") == 0) {
         op = update_threshold;
-    }else if(strcmp(ops,"--filter") == 0){
+    }
+    else if (strcmp(ops, "--filter") == 0) {
         op = filter;
-    }else op = -1;
+    }
+    else op = -1;
 
     switch (op) {
-        case add: {
-            printf("Add to %s.\n",district_id);
-            if(argc != 7){
-                print_usage("--add <district_id>");
-                return 1;
-            }
-            break;
-        }
-        case list:{
-            if(argc != 7){
-                print_usage("--list <district_id>");
-                return 1;
-            }
-            printf("To do list\n");
-            break;
-        }
-        case view:{
-            if(argc != 8){
-                print_usage("--view <district_id> <report_id>");
-                return 1;
-            }
-            printf("To do view\n");
-            break;
-        }
-        case remove_report:{
-            if(argc != 8){
-                print_usage("--remove_report <district_id> <report_id>");
-                return 1;
-            }
-            printf("To do remove\n");
-            break;
-        }
-        case update_threshold:{
-            if(argc != 8){
-                print_usage("--update_threshold <district_id> <value>");
-                return 1;
-            }
-            printf("To do update\n");
-            break;
-        }
-        case filter:{
-            if(argc < 8){
-                print_usage("--filter <district_id> <condition>");
-                return 1;
-            }
-            printf("To do filter\n");
-            break;
-        }
-        default:
-            printf("Operation %s does not exist.\n",ops);
+    case add: {
+        if (argc < 7) {
+            print_usage("--add <district_id>");
             return 1;
+        }
+        add_function(district_id, role, user);
+        break;
+    }
+    case list: {
+        if (argc != 7) {
+            print_usage("--list <district_id>");
+            return 1;
+        }
+        printf("To do list\n");
+        break;
+    }
+    case view: {
+        if (argc != 8) {
+            print_usage("--view <district_id> <report_id>");
+            return 1;
+        }
+        printf("To do view\n");
+        break;
+    }
+    case remove_report: {
+        if (argc != 8) {
+            print_usage("--remove_report <district_id> <report_id>");
+            return 1;
+        }
+        printf("To do remove\n");
+        break;
+    }
+    case update_threshold: {
+        if (argc != 8) {
+            print_usage("--update_threshold <district_id> <value>");
+            return 1;
+        }
+        printf("To do update\n");
+        break;
+    }
+    case filter: {
+        if (argc < 8) {
+            print_usage("--filter <district_id> <condition>");
+            return 1;
+        }
+        printf("To do filter\n");
+        break;
+    }
+    default:
+        printf("Operation %s does not exist.\n", ops);
+        return 1;
     }
 
     return 0;
