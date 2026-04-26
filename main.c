@@ -820,20 +820,20 @@ void manage_symlink(const char * district){
 }
 
 void check_dangling_symlink(const char * link_name){
-    // struct stat link_st = {0};
-    // struct stat target_st = {0};
+    struct stat link_st = {0};
+    struct stat target_st = {0};
 
-    // if(lstat(link_name, &link_st) == 0){
-    //     if(S_ISLNK(link_st.st_mode)){
-    //         if(stat(link_name, &target_st) == -1) {
-    //             if(errno == ENOENT){
-    //                 fprintf(stderr, "Warning: The symlink '%s' is dangling (its target file is missing).",link_name);
-    //             } else{
-    //                 perror("Warning: Error accessing symlink target");
-    //             }
-    //         }
-    //     }
-    // }
+    if(lstat(link_name, &link_st) == 0){
+        if(S_ISLNK(link_st.st_mode)){
+            if(stat(link_name, &target_st) == -1) {
+                if(errno == ENOENT){
+                    fprintf(stderr, "Warning: The symlink '%s' is dangling (its target file is missing).",link_name);
+                } else{
+                    perror("Warning: Error accessing symlink target");
+                }
+            }
+        }
+    }
 }
 
 //MAIN
