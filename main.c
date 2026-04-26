@@ -29,7 +29,8 @@ enum Operation {
     view,
     remove_report,
     update_threshold,
-    filter
+    filter,
+    op_invalid
 };
 
 //FUNCTION PROTOTYPES
@@ -193,9 +194,10 @@ void add_function(const char* district, const char* role, const char* inspector_
             perror("Warning: Failed to create default district.cfg");
         }
 
-        //create symlink
-        manage_symlink(district);
+        
     }
+    //create symlink    
+    manage_symlink(district);
 
     //open reports.dat
     char reports_path[256];
@@ -208,7 +210,6 @@ void add_function(const char* district, const char* role, const char* inspector_
         _exit(1);
     }
 
-    printf("add %s\n", district);
     //create record
     Record new_record;
     memset(&new_record, 0, sizeof(Record));
@@ -289,7 +290,11 @@ void add_function(const char* district, const char* role, const char* inspector_
         clear_input_buffer();
     }
 
-    write(report_fd, &new_record, sizeof(Record));
+    if (write(report_fd, &new_record, sizeof(Record)) == -1) {
+        perror("Error: Could not write to reports.dat");
+        close(report_fd);
+        _exit(1);
+    }
     close(report_fd);
     log_operation(district, role, inspector_name, "add");
     printf("Report ID %d successfully added!\n", new_record.id);
@@ -305,6 +310,12 @@ void list_function(const char* district, const char* role, const char* user) {
 
     char reports_path[256];
     snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
+
+    struct stat st_check = {0};
+    if (stat(reports_path, &st_check) == -1) {
+        printf("No reports found in district '%s' yet.\n", district);
+        return;
+    }
 
     if (!check_permission(reports_path, role, 1, 0)) {
         return;
@@ -822,7 +833,7 @@ int main(int argc, char** argv) {
     else if (strcmp(ops, "--filter") == 0) {
         op = filter;
     }
-    else op = -1;
+    else op = op_invalid;
 
     switch (op) {
     case add: {
