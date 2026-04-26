@@ -34,16 +34,16 @@ enum Operation {
 };
 
 //FUNCTION PROTOTYPES
-void manage_symlink(const char *district);
-void check_dangling_symlink(const char *link_name);
-void view_function(const char *district, const char *role, const char *user, const char *target_id_string);
-void remove_report_function(const char *district, const char *role, const char *user, const char *target_id_string);
-void update_threshold_function(const char *district, const char *role, const char *user, const char *threshold_str);
-void filter_function(const char *district, const char *role, const char *user, int argc, char **argv);
-int parse_condition(const char *input, char *field, char *op, char *value);
-int match_condition(Record *r, const char *field, const char *op, const char *value);
-static int compare_numeric(long long rec_val, long long cond_val, const char *op);
-static int compare_string(const char *rec_val, const char *cond_val, const char *op);
+void manage_symlink(const char* district);
+void check_dangling_symlink(const char* link_name);
+void view_function(const char* district, const char* role, const char* user, const char* target_id_string);
+void remove_report_function(const char* district, const char* role, const char* user, const char* target_id_string);
+void update_threshold_function(const char* district, const char* role, const char* user, const char* threshold_str);
+void filter_function(const char* district, const char* role, const char* user, int argc, char** argv);
+int parse_condition(const char* input, char* field, char* op, char* value);
+int match_condition(Record* r, const char* field, const char* op, const char* value);
+static int compare_numeric(long long rec_val, long long cond_val, const char* op);
+static int compare_string(const char* rec_val, const char* cond_val, const char* op);
 
 //PERMISSIONS
 void mode_to_string(mode_t mode, char* str) {
@@ -194,9 +194,9 @@ void add_function(const char* district, const char* role, const char* inspector_
             perror("Warning: Failed to create default district.cfg");
         }
 
-        
+
     }
-    //create symlink    
+    //create symlink
     manage_symlink(district);
 
     //open reports.dat
@@ -204,11 +204,11 @@ void add_function(const char* district, const char* role, const char* inspector_
     snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
 
     int report_fd = open(reports_path, O_RDWR | O_CREAT | O_APPEND, 0664);
-    chmod(reports_path, 0664);
     if (report_fd == -1) {
         perror("Fatal: Could not open reports.dat");
         _exit(1);
     }
+    chmod(reports_path, 0664);
 
     //create record
     Record new_record;
@@ -221,7 +221,7 @@ void add_function(const char* district, const char* role, const char* inspector_
             _exit(1);
         }
 
-        if(st.st_size > 0) {
+        if (st.st_size > 0) {
             Record last_record;
             lseek(report_fd, -sizeof(Record), SEEK_END);
             read(report_fd, &last_record, sizeof(Record));
@@ -308,22 +308,23 @@ void list_function(const char* district, const char* role, const char* user) {
         return;
     }
 
+    //symlink warning
+    char link_name[256];
+    snprintf(link_name, sizeof(link_name), "active_reports-%s", district);
+    check_dangling_symlink(link_name);
+
+
     char reports_path[256];
     snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
-
-    struct stat st_check = {0};
-    if (stat(reports_path, &st_check) == -1) {
-        printf("No reports found in district '%s' yet.\n", district);
-        return;
-    }
-
-    if (!check_permission(reports_path, role, 1, 0)) {
-        return;
-    }
+    check_dangling_symlink(reports_path);
 
     struct stat st = { 0 };
     if (stat(reports_path, &st) == -1) {
         perror("Error: Could not stat reports.dat");
+        return;
+    }
+
+    if (!check_permission(reports_path, role, 1, 0)) {
         return;
     }
 
@@ -337,11 +338,6 @@ void list_function(const char* district, const char* role, const char* user) {
     printf("\n=== District: %s ===\n", district);
     printf("File Info: %s | Size: %ld bytes | Last Modified: %s\n", perms, (long)st.st_size, time_str);
     printf("\n-----------------------------------------------------------\n");
-
-    //symlink warning
-    char link_name[256];
-    snprintf(link_name, sizeof(link_name), "active_reports-%s", district);
-    check_dangling_symlink(link_name);
 
     int fd = open(reports_path, O_RDONLY);
     if (fd == -1) {
@@ -384,17 +380,18 @@ void view_function(const char* district, const char* role, const char* user, con
         return;
     }
 
+26    //symlink warning
+    char link_name[256];
+    snprintf(link_name, sizeof(link_name), "active_reports-%s", district);
+    check_dangling_symlink(link_name);
+
     char reports_path[256];
     snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
+    check_dangling_symlink(reports_path);
 
     if (!check_permission(reports_path, role, 1, 0)) {
         return;
     }
-
-    //symlink warning
-    char link_name[256];
-    snprintf(link_name, sizeof(link_name), "active_reports-%s", district);
-    check_dangling_symlink(link_name);
 
     int fd = open(reports_path, O_RDONLY);
     if (fd == -1) {
@@ -490,7 +487,11 @@ void remove_report_function(const char* district, const char* role, const char* 
         }
 
         lseek(fd, write_pos, SEEK_SET);
-        write(fd, &temp_record, sizeof(Record));
+        if (write(fd, &temp_record, sizeof(Record)) == -1) {
+            perror("Error writing to reports.dat during removal");
+            close(fd);
+            return;
+        }
 
         read_pos += sizeof(Record);
         write_pos += sizeof(Record);
@@ -557,7 +558,7 @@ void update_threshold_function(const char* district, const char* role, const cha
     if (write(fd, buffer, len) == -1) {
         perror("Error writing new threshold to district.cfg");
     }
-else {
+    else {
         printf("Threshold successfully updated to %d for district '%s'.\n", new_threshold, district);
     }
 
@@ -683,8 +684,8 @@ int match_condition(Record* r, const char* field, const char* op, const char* va
 }
 //End of AI created functions
 
-void filter_function(const char *district, const char *role, const char *user, int argc, char **argv){
-    if(!district_exists(district)){
+void filter_function(const char* district, const char* role, const char* user, int argc, char** argv) {
+    if (!district_exists(district)) {
         fprintf(stderr, "Error: District '%s' does not exist.\n", district);
         return;
     }
@@ -692,12 +693,12 @@ void filter_function(const char *district, const char *role, const char *user, i
     char reports_path[256];
     snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
 
-    if(!check_permission(reports_path, role, 1, 0)){
+    if (!check_permission(reports_path, role, 1, 0)) {
         return;
     }
 
     int fd = open(reports_path, O_RDONLY);
-    if(fd == -1){
+    if (fd == -1) {
         perror("Error opening reports.dat");
         return;
     }
@@ -707,40 +708,41 @@ void filter_function(const char *district, const char *role, const char *user, i
 
     printf("\n=== Filtered Reports for District: %s ===\n", district);
 
-    while(read(fd, &current_record, sizeof(Record)) == sizeof(Record)){
+    while (read(fd, &current_record, sizeof(Record)) == sizeof(Record)) {
         int is_match = 1;
 
-        for(int i = 7; i < argc; i++){
-            char field[32] = {0}, op[4] = {0}, value[128] = {0};
-            if(!parse_condition(argv[i], field, op, value)){
+        for (int i = 7; i < argc; i++) {
+            char field[32] = { 0 }, op[4] = { 0 }, value[128] = { 0 };
+            if (!parse_condition(argv[i], field, op, value)) {
                 fprintf(stderr, "Error: Malformed condition '%s'\n", argv[i]);
                 close(fd);
                 return;
             }
 
-            if(!match_condition(&current_record, field, op, value)){
+            if (!match_condition(&current_record, field, op, value)) {
                 is_match = 0;
                 break;
             }
         }
 
-        if(is_match){
+        if (is_match) {
             printf("[ID: %d] %s | Sev: %d | Cat: %s | GPS: (%.4f,%.4f)\n",
-                   current_record.id,
-                   current_record.inspector,
-                   current_record.severity,
-                   current_record.category,
-                   current_record.latitude,
-                   current_record.longitude);
+                current_record.id,
+                current_record.inspector,
+                current_record.severity,
+                current_record.category,
+                current_record.latitude,
+                current_record.longitude);
             printf("Description: %s\n", current_record.description);
             printf("-----\n");
             count++;
         }
     }
 
-    if(count == 0){
+    if (count == 0) {
         printf("No reports match the specified conditions.\n");
-    }else{
+    }
+    else {
         printf("Total matching records: %d\n", count);
     }
     printf("==========================\n\n");
@@ -750,35 +752,37 @@ void filter_function(const char *district, const char *role, const char *user, i
 }
 
 //SYMLINK
-void manage_symlink(const char * district){
+void manage_symlink(const char* district) {
     char link_name[256];
     char target_path[256];
 
     snprintf(link_name, sizeof(link_name), "active_reports-%s", district);
     snprintf(target_path, sizeof(target_path), "%s/reports.dat", district);
 
-    struct stat st = {0};
+    struct stat st = { 0 };
 
-    if(lstat(link_name, &st) == -1){
-        if(symlink(target_path, link_name) == -1){
+    if (lstat(link_name, &st) == -1) {
+        if (symlink(target_path, link_name) == -1) {
             perror("Error creating symlink");
-        }else{
+        }
+        else {
             printf("Symlink '%s' created pointing to '%s'\n", link_name, target_path);
         }
     }
 }
 
-void check_dangling_symlink(const char * link_name){
-    struct stat link_st = {0};
-    struct stat target_st = {0};
+void check_dangling_symlink(const char* link_name) {
+    struct stat link_st = { 0 };
+    struct stat target_st = { 0 };
 
-    if(lstat(link_name, &link_st) == 0){
-        if(S_ISLNK(link_st.st_mode)){
-            if(stat(link_name, &target_st) == -1) {
-                if(errno == ENOENT){
-                    fprintf(stderr, "Warning: The symlink '%s' is dangling (its target file is missing).",link_name);
+    if (lstat(link_name, &link_st) == 0) {
+        if (S_ISLNK(link_st.st_mode)) {
+            if (stat(link_name, &target_st) == -1) {
+                if (errno == ENOENT) {
+                    fprintf(stderr, "Warning: The symlink '%s' is dangling (its target file is missing).", link_name);
                     unlink(link_name);
-                } else{
+                }
+                else {
                     perror("Warning: Error accessing symlink target");
                 }
             }
