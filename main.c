@@ -169,6 +169,9 @@ void add_function(const char* district, const char* role, const char* inspector_
         else {
             perror("Warning: Failed to create default district.cfg");
         }
+
+        //create symlink
+        manage_symlink(district);
     }
 
     //open reports.dat
@@ -297,6 +300,11 @@ void list_function(const char* district, const char* role, const char* user) {
     printf("File Info: %s | Size: %ld bytes | Last Modified: %s\n", perms, (long)st.st_size, time_str);
     printf("\n-----------------------------------------------------------\n");
 
+    //symlink warning
+    char link_name[256];
+    snprintf(link_name, sizeof(link_name), "active-reports-%s", district);
+    check_dangling_symlink(link_name);
+
     int fd = open(reports_path, O_RDONLY);
     if (fd == -1) {
         perror("Error opening reports.dat for reading");
@@ -345,6 +353,11 @@ void view_function(const char* district, const char* role, const char* user, con
         return;
     }
 
+    //symlink warning
+    char link_name[256];
+    snprintf(link_name, sizeof(link_name), "active-reports-%s", district);
+    check_dangling_symlink(link_name);
+
     int fd = open(reports_path, O_RDONLY);
     if (fd == -1) {
         perror("Error opening reports.dat");
@@ -385,7 +398,7 @@ void view_function(const char* district, const char* role, const char* user, con
 
 //REMOVE
 void remove_report_function(const char* district, const char* role, const char* user, const char* target_id_string) {
-    if(strcmp(role, "manager") != 0) {
+    if (strcmp(role, "manager") != 0) {
         fprintf(stderr, "Access Denied: Only managers can remove reports.\n");
         return;
     }
@@ -400,7 +413,7 @@ void remove_report_function(const char* district, const char* role, const char* 
     char reports_path[256];
     snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
 
-    if(!check_permission(reports_path, role, 1, 1)) {
+    if (!check_permission(reports_path, role, 1, 1)) {
         return;
     }
 
@@ -422,7 +435,7 @@ void remove_report_function(const char* district, const char* role, const char* 
         current_index++;
     }
 
-    if(found_index == -1) {
+    if (found_index == -1) {
         printf("Error: Report with ID %d not found in district '%s'.\n", target_id, district);
         close(fd);
         return;
@@ -432,9 +445,9 @@ void remove_report_function(const char* district, const char* role, const char* 
     off_t write_pos = found_index * sizeof(Record);
 
     Record temp_record;
-    while(1){
+    while (1) {
         lseek(fd, read_pos, SEEK_SET);
-        if(read(fd, &temp_record, sizeof(Record)) != sizeof(Record)) {
+        if (read(fd, &temp_record, sizeof(Record)) != sizeof(Record)) {
             break;
         }
 
@@ -448,9 +461,10 @@ void remove_report_function(const char* district, const char* role, const char* 
     struct stat st = { 0 };
     fstat(fd, &st);
 
-    if(ftruncate(fd, st.st_size - sizeof(Record)) == -1) {
+    if (ftruncate(fd, st.st_size - sizeof(Record)) == -1) {
         perror("Error truncating file");
-    }else {
+    }
+    else {
         printf("Report with ID %d successfully removed from district '%s'.\n", target_id, district);
     }
 
@@ -459,19 +473,19 @@ void remove_report_function(const char* district, const char* role, const char* 
 }
 
 //UPDATE THRESHOLD
-void update_threshold_function(const char *district, const char *role, const char *user, const char *threshold_str){
-    if(strcmp(role, "manager") != 0){
-        fprintf(stderr,"Access Denied: Only managers can update the threshold.\n");
+void update_threshold_function(const char* district, const char* role, const char* user, const char* threshold_str) {
+    if (strcmp(role, "manager") != 0) {
+        fprintf(stderr, "Access Denied: Only managers can update the threshold.\n");
         return;
     }
     int new_threshold = atoi(threshold_str);
-    if(new_threshold < 1){
-        fprintf(stderr,"Invalid threshold value. Must be a positive integer.\n");
+    if (new_threshold < 1) {
+        fprintf(stderr, "Invalid threshold value. Must be a positive integer.\n");
         return;
     }
 
-    if(!district_exists(district)){
-        fprintf(stderr,"Error: District '%s' does not exist.\n", district);
+    if (!district_exists(district)) {
+        fprintf(stderr, "Error: District '%s' does not exist.\n", district);
         return;
     }
 
@@ -479,22 +493,22 @@ void update_threshold_function(const char *district, const char *role, const cha
     snprintf(config_path, sizeof(config_path), "%s/district.cfg", district);
 
     struct stat st = { 0 };
-    if(stat(config_path, &st) == -1){
+    if (stat(config_path, &st) == -1) {
         perror("Error: Could not stat district.cfg");
         return;
     }
 
-    if((st.st_mode & 0777) != 0640){
-        fprintf(stderr,"Error: district.cfg has incorrect permissions. Expected 0640.\n");
+    if ((st.st_mode & 0777) != 0640) {
+        fprintf(stderr, "Error: district.cfg has incorrect permissions. Expected 0640.\n");
         return;
     }
 
-    if(!check_permission(config_path, role, 1, 1)){
+    if (!check_permission(config_path, role, 1, 1)) {
         return;
     }
 
     int fd = open(config_path, O_WRONLY | O_TRUNC);
-    if(fd == -1){
+    if (fd == -1) {
         perror("Error opening district.cfg");
         return;
     }
@@ -502,14 +516,324 @@ void update_threshold_function(const char *district, const char *role, const cha
     char buffer[32];
     int len = snprintf(buffer, sizeof(buffer), "%d\n", new_threshold);
 
-    if(write(fd, buffer, len) == -1){
+    if (write(fd, buffer, len) == -1) {
         perror("Error writing new threshold to district.cfg");
-    }else {
+    }
+else {
         printf("Threshold successfully updated to %d for district '%s'.\n", new_threshold, district);
     }
 
     close(fd);
     log_operation(district, role, user, "update_threshold");
+}
+
+//FILTER
+//AI created functions
+
+
+/**
+
+ * Parses a condition string formatted as "field:operator:value"
+
+ * * @param input The input string to parse.
+
+ * @param field Buffer to store the extracted field name.
+
+ * @param op    Buffer to store the extracted operator.
+
+ * @param value Buffer to store the extracted value.
+
+ * @return      1 on success, 0 on failure (e.g., malformed string or null pointers).
+
+ */
+
+int parse_condition(const char* input, char* field, char* op, char* value) {
+
+    // Null pointer safety check
+
+    if (!input || !field || !op || !value) {
+
+        return 0;
+
+    }
+
+
+    // Find the first colon
+
+    const char* first_colon = strchr(input, ':');
+
+    if (!first_colon) {
+
+        return 0; // Missing first colon
+
+    }
+
+
+    // Find the second colon, searching from the character after the first colon
+
+    const char* second_colon = strchr(first_colon + 1, ':');
+
+    if (!second_colon) {
+
+        return 0; // Missing second colon
+
+    }
+
+
+    // Calculate lengths of the field and operator substrings
+
+    size_t field_len = first_colon - input;
+
+    size_t op_len = second_colon - (first_colon + 1);
+
+
+    // Extract the field and explicitly null-terminate
+
+    strncpy(field, input, field_len);
+
+    field[field_len] = '\0';
+
+
+    // Extract the operator and explicitly null-terminate
+
+    strncpy(op, first_colon + 1, op_len);
+
+    op[op_len] = '\0';
+
+
+    // Extract the value (copies everything from the second colon to the null terminator)
+
+    strcpy(value, second_colon + 1);
+
+
+    return 1;
+
+}
+
+/**
+
+ * Helper function to evaluate numeric comparisons.
+
+ * Casts values to long long to safely handle both int (severity) and time_t (timestamp).
+
+ */
+
+static int compare_numeric(long long rec_val, long long cond_val, const char* op) {
+
+    if (strcmp(op, "==") == 0) return rec_val == cond_val;
+
+    if (strcmp(op, "!=") == 0) return rec_val != cond_val;
+
+    if (strcmp(op, "<") == 0) return rec_val < cond_val;
+
+    if (strcmp(op, "<=") == 0) return rec_val <= cond_val;
+
+    if (strcmp(op, ">") == 0) return rec_val > cond_val;
+
+    if (strcmp(op, ">=") == 0) return rec_val >= cond_val;
+
+    return 0; // Unknown operator
+
+}
+
+
+/**
+
+ * Helper function to evaluate string comparisons.
+
+ * Uses standard lexicographical evaluation via strcmp.
+
+ */
+
+static int compare_string(const char* rec_val, const char* cond_val, const char* op) {
+
+    int cmp = strcmp(rec_val, cond_val);
+
+    if (strcmp(op, "==") == 0) return cmp == 0;
+
+    if (strcmp(op, "!=") == 0) return cmp != 0;
+
+    if (strcmp(op, "<") == 0) return cmp < 0;
+
+    if (strcmp(op, "<=") == 0) return cmp <= 0;
+
+    if (strcmp(op, ">") == 0) return cmp > 0;
+
+    if (strcmp(op, ">=") == 0) return cmp >= 0;
+
+    return 0; // Unknown operator
+
+}
+
+
+/**
+
+ * Evaluates if a record matches a given condition.
+
+ * * @param r     Pointer to the Record.
+
+ * @param field The field to evaluate (severity, category, inspector, timestamp).
+
+ * @param op    The comparison operator (==, !=, <, <=, >, >=).
+
+ * @param value The value to compare against, represented as a string.
+
+ * @return      1 if the record satisfies the condition, 0 otherwise.
+
+ */
+
+int match_condition(Record* r, const char* field, const char* op, const char* value) {
+
+    if (!r || !field || !op || !value) {
+
+        return 0; // Safety guard
+
+    }
+
+
+    if (strcmp(field, "severity") == 0) {
+
+        int val = atoi(value);
+
+        return compare_numeric((long long)r->severity, (long long)val, op);
+
+
+
+    }
+    else if (strcmp(field, "timestamp") == 0) {
+
+        // Using strtoll for safe conversion to 64-bit integers often used by time_t
+
+        long long val = strtoll(value, NULL, 10);
+
+        return compare_numeric((long long)r->timestamp, val, op);
+
+
+
+    }
+    else if (strcmp(field, "category") == 0) {
+
+        return compare_string(r->category, value, op);
+
+
+
+    }
+    else if (strcmp(field, "inspector") == 0) {
+
+        return compare_string(r->inspector, value, op);
+
+
+
+    }
+
+
+    // Unsupported field
+
+    return 0;
+
+}
+//End of AI created functions
+
+void filter_function(const char *district, const char *role, const char *user, int argc, char **argv){
+    if(!district_exists(district)){
+        fprintf(stderr, "Error: District '%s' does not exist.\n", district);
+        return;
+    }
+
+    char reports_path[256];
+    snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
+
+    if(!check_permission(reports_path, role, 1, 0)){
+        return;
+    }
+
+    int fd = open(reports_path, O_RDONLY);
+    if(fd == -1){
+        perror("Error opening reports.dat");
+        return;
+    }
+
+    Record current_record;
+    int count = 0;
+
+    printf("\n=== Filtered Reports for District: %s ===\n", district);
+
+    while(read(fd, &current_record, sizeof(Record)) == sizeof(Record)){
+        int is_match = 1;
+
+        for(int i = 7; i < argc; i++){
+            char field[32] = {0}, op[4] = {0}, value[128] = {0};
+            if(!parse_condition(argv[i], field, op, value)){
+                fprintf(stderr, "Error: Malformed condition '%s'\n", argv[i]);
+                close(fd);
+                return;
+            }
+
+            if(!match_condition(&current_record, field, op, value)){
+                is_match = 0;
+                break;
+            }
+        }
+
+        if(is_match){
+            printf("[ID: %d] %s | Sev: %d | Cat: %s | GPS: (%.4f,%.4f)\n",
+                   current_record.id,
+                   current_record.inspector,
+                   current_record.severity,
+                   current_record.category,
+                   current_record.latitude,
+                   current_record.longitude);
+            printf("Description: %s\n", current_record.description);
+            printf("-----\n");
+            count++;
+        }
+    }
+
+    if(count == 0){
+        printf("No reports match the specified conditions.\n");
+    }else{
+        printf("Total matching records: %d\n", count);
+    }
+    printf("==========================\n\n");
+
+    close(fd);
+    log_operation(district, role, user, "filter");
+}
+
+//SYMLINK
+void manage_symlink(const char * district){
+    char link_name[256];
+    char target_path[256];
+
+    snprintf(link_name, sizeof(link_name), "active-reports-%s", district);
+    snprintf(target_path, sizeof(target_path), "%s/reports.dat", district);
+
+    struct stat st = {0};
+
+    if(lstat(link_name, &st) == -1){
+        if(symlink(target_path, link_name) == -1){
+            perror("Error creating symlink");
+        }else{
+            printf("Symlink '%s' created pointing to '%s'\n", link_name, target_path);
+        }
+    }
+}
+
+void check_dangling_symlink(const char * link_name){
+    struct stat link_st = {0};
+    struct stat target_st = {0};
+
+    if(lstat(link_name, &link_st) == 0){
+        if(S_ISLNK(link_st.st_mode)){
+            if(stat(link_name, &target_st) == -1) {
+                if(errno == ENOENT){
+                    fprintf(stderr, "Warning: The symlink '%s' is dangling (its target file is missing).",link_name);
+                } else{
+                    perror("Warning: Error accessing symlink target");
+                }
+            }
+        }
+    }
 }
 
 //MAIN
@@ -607,7 +931,7 @@ int main(int argc, char** argv) {
             print_usage("--filter <district_id> <condition>");
             return 1;
         }
-        printf("To do filter\n");
+        filter_function(district_id, role, user, argc, argv);
         break;
     }
     default:
