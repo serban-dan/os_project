@@ -380,7 +380,7 @@ void view_function(const char* district, const char* role, const char* user, con
         return;
     }
 
-26    //symlink warning
+    //symlink warning
     char link_name[256];
     snprintf(link_name, sizeof(link_name), "active_reports-%s", district);
     check_dangling_symlink(link_name);
