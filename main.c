@@ -32,6 +32,18 @@ enum Operation {
     filter
 };
 
+//FUNCTION PROTOTYPES
+void manage_symlink(const char *district);
+void check_dangling_symlink(const char *link_name);
+void view_function(const char *district, const char *role, const char *user, const char *target_id_string);
+void remove_report_function(const char *district, const char *role, const char *user, const char *target_id_string);
+void update_threshold_function(const char *district, const char *role, const char *user, const char *threshold_str);
+void filter_function(const char *district, const char *role, const char *user, int argc, char **argv);
+int parse_condition(const char *input, char *field, char *op, char *value);
+int match_condition(Record *r, const char *field, const char *op, const char *value);
+static int compare_numeric(long long rec_val, long long cond_val, const char *op);
+static int compare_string(const char *rec_val, const char *cond_val, const char *op);
+
 //PERMISSIONS
 void mode_to_string(mode_t mode, char* str) {
     str[0] = (mode & S_IRUSR) ? 'r' : '-';
@@ -131,7 +143,17 @@ void log_operation(const char* district, const char* role, const char* user, con
 
     snprintf(filepath, sizeof(filepath), "%s/logged_district", district);
 
+    struct stat st = { 0 };
+    if (stat(filepath, &st) == 0) {
+        if (!check_permission(filepath, role, 0, 1)) {
+            printf("Warning: Unable to log operation due to insufficient permissions on %s\n", filepath);
+            return;
+        }
+    }
+
     int fd = open(filepath, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    chmod(filepath, 0644);
+
     if (fd == -1) {
         perror("Failed to open log file");
         return;
@@ -165,6 +187,7 @@ void add_function(const char* district, const char* role, const char* inspector_
         if (cfg_fd != -1) {
             write(cfg_fd, "1\n", 2); //1 is default threshhold value
             close(cfg_fd);
+            chmod(config_path, 0640);
         }
         else {
             perror("Warning: Failed to create default district.cfg");
@@ -179,6 +202,7 @@ void add_function(const char* district, const char* role, const char* inspector_
     snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
 
     int report_fd = open(reports_path, O_RDWR | O_CREAT | O_APPEND, 0664);
+    chmod(reports_path, 0664);
     if (report_fd == -1) {
         perror("Fatal: Could not open reports.dat");
         _exit(1);
@@ -191,19 +215,22 @@ void add_function(const char* district, const char* role, const char* inspector_
 
     int next_id = 0;
     struct stat st = { 0 };
-    if (stat(reports_path, &st) == 0 && st.st_size > 0) {
+    if (stat(reports_path, &st) == 0) {
         if (!check_permission(reports_path, role, 0, 1)) {
             _exit(1);
         }
 
-        Record last_record;
-        lseek(report_fd, -sizeof(Record), SEEK_END);
-        read(report_fd, &last_record, sizeof(Record));
-        next_id = last_record.id + 1;
+        if(st.st_size > 0) {
+            Record last_record;
+            lseek(report_fd, -sizeof(Record), SEEK_END);
+            read(report_fd, &last_record, sizeof(Record));
+            next_id = last_record.id + 1;
+        }
     }
 
     new_record.id = next_id;
-    strcpy(new_record.inspector, inspector_name);
+    strncpy(new_record.inspector, inspector_name, MAX_NAME_LEN - 1);
+    new_record.inspector[MAX_NAME_LEN - 1] = '\0';
 
     while (1) {
         printf("X: ");
@@ -272,7 +299,7 @@ void add_function(const char* district, const char* role, const char* inspector_
 void list_function(const char* district, const char* role, const char* user) {
 
     if (!district_exists(district)) {
-        fprintf(stderr, "Error: District '%s' does not exits.\n", district);
+        fprintf(stderr, "Error: District '%s' does not exist.\n", district);
         return;
     }
 
@@ -302,7 +329,7 @@ void list_function(const char* district, const char* role, const char* user) {
 
     //symlink warning
     char link_name[256];
-    snprintf(link_name, sizeof(link_name), "active-reports-%s", district);
+    snprintf(link_name, sizeof(link_name), "active_reports-%s", district);
     check_dangling_symlink(link_name);
 
     int fd = open(reports_path, O_RDONLY);
@@ -315,7 +342,7 @@ void list_function(const char* district, const char* role, const char* user) {
     int count = 0;
 
     while (read(fd, &current_record, sizeof(Record)) == sizeof(Record)) {
-        printf("[ID: %d] %s | Sev: %d | Cat: %s | GPS: (%.4f,%4f)\n",
+        printf("[ID: %d] %s | Sev: %d | Cat: %s | GPS: (%.4f,%.4f)\n",
             current_record.id,
             current_record.inspector,
             current_record.severity,
@@ -342,7 +369,7 @@ void view_function(const char* district, const char* role, const char* user, con
     int target_id = atoi(target_id_string);
 
     if (!district_exists(district)) {
-        fprintf(stderr, "Error: District '%s' does not exits.\n", district);
+        fprintf(stderr, "Error: District '%s' does not exist.\n", district);
         return;
     }
 
@@ -355,7 +382,7 @@ void view_function(const char* district, const char* role, const char* user, con
 
     //symlink warning
     char link_name[256];
-    snprintf(link_name, sizeof(link_name), "active-reports-%s", district);
+    snprintf(link_name, sizeof(link_name), "active_reports-%s", district);
     check_dangling_symlink(link_name);
 
     int fd = open(reports_path, O_RDONLY);
@@ -406,7 +433,7 @@ void remove_report_function(const char* district, const char* role, const char* 
     int target_id = atoi(target_id_string);
 
     if (!district_exists(district)) {
-        fprintf(stderr, "Error: District '%s' does not exits.\n", district);
+        fprintf(stderr, "Error: District '%s' does not exist.\n", district);
         return;
     }
 
@@ -530,119 +557,71 @@ else {
 //FILTER
 //AI created functions
 
-
 /**
-
  * Parses a condition string formatted as "field:operator:value"
-
  * * @param input The input string to parse.
-
  * @param field Buffer to store the extracted field name.
-
  * @param op    Buffer to store the extracted operator.
-
  * @param value Buffer to store the extracted value.
-
  * @return      1 on success, 0 on failure (e.g., malformed string or null pointers).
-
  */
-
 int parse_condition(const char* input, char* field, char* op, char* value) {
-
     // Null pointer safety check
-
     if (!input || !field || !op || !value) {
-
         return 0;
-
     }
-
 
     // Find the first colon
-
     const char* first_colon = strchr(input, ':');
-
     if (!first_colon) {
-
         return 0; // Missing first colon
-
     }
-
 
     // Find the second colon, searching from the character after the first colon
-
     const char* second_colon = strchr(first_colon + 1, ':');
-
     if (!second_colon) {
-
         return 0; // Missing second colon
-
     }
 
-
     // Calculate lengths of the field and operator substrings
-
     size_t field_len = first_colon - input;
-
     size_t op_len = second_colon - (first_colon + 1);
 
-
     // Extract the field and explicitly null-terminate
-
     strncpy(field, input, field_len);
-
     field[field_len] = '\0';
 
-
     // Extract the operator and explicitly null-terminate
-
     strncpy(op, first_colon + 1, op_len);
-
     op[op_len] = '\0';
 
-
     // Extract the value (copies everything from the second colon to the null terminator)
-
     strcpy(value, second_colon + 1);
-
-
     return 1;
 
 }
 
 /**
-
  * Helper function to evaluate numeric comparisons.
-
  * Casts values to long long to safely handle both int (severity) and time_t (timestamp).
-
  */
 
 static int compare_numeric(long long rec_val, long long cond_val, const char* op) {
 
     if (strcmp(op, "==") == 0) return rec_val == cond_val;
-
     if (strcmp(op, "!=") == 0) return rec_val != cond_val;
-
     if (strcmp(op, "<") == 0) return rec_val < cond_val;
-
     if (strcmp(op, "<=") == 0) return rec_val <= cond_val;
-
     if (strcmp(op, ">") == 0) return rec_val > cond_val;
-
     if (strcmp(op, ">=") == 0) return rec_val >= cond_val;
-
     return 0; // Unknown operator
 
 }
 
 
 /**
-
  * Helper function to evaluate string comparisons.
-
  * Uses standard lexicographical evaluation via strcmp.
-
  */
 
 static int compare_string(const char* rec_val, const char* cond_val, const char* op) {
@@ -650,85 +629,44 @@ static int compare_string(const char* rec_val, const char* cond_val, const char*
     int cmp = strcmp(rec_val, cond_val);
 
     if (strcmp(op, "==") == 0) return cmp == 0;
-
     if (strcmp(op, "!=") == 0) return cmp != 0;
-
     if (strcmp(op, "<") == 0) return cmp < 0;
-
     if (strcmp(op, "<=") == 0) return cmp <= 0;
-
     if (strcmp(op, ">") == 0) return cmp > 0;
-
     if (strcmp(op, ">=") == 0) return cmp >= 0;
-
     return 0; // Unknown operator
-
 }
 
-
 /**
-
  * Evaluates if a record matches a given condition.
-
  * * @param r     Pointer to the Record.
-
  * @param field The field to evaluate (severity, category, inspector, timestamp).
-
  * @param op    The comparison operator (==, !=, <, <=, >, >=).
-
  * @param value The value to compare against, represented as a string.
-
  * @return      1 if the record satisfies the condition, 0 otherwise.
-
  */
 
 int match_condition(Record* r, const char* field, const char* op, const char* value) {
-
     if (!r || !field || !op || !value) {
-
         return 0; // Safety guard
-
     }
-
 
     if (strcmp(field, "severity") == 0) {
-
         int val = atoi(value);
-
         return compare_numeric((long long)r->severity, (long long)val, op);
-
-
-
     }
     else if (strcmp(field, "timestamp") == 0) {
-
         // Using strtoll for safe conversion to 64-bit integers often used by time_t
-
         long long val = strtoll(value, NULL, 10);
-
         return compare_numeric((long long)r->timestamp, val, op);
-
-
-
     }
     else if (strcmp(field, "category") == 0) {
-
         return compare_string(r->category, value, op);
-
-
-
     }
     else if (strcmp(field, "inspector") == 0) {
-
         return compare_string(r->inspector, value, op);
-
-
-
     }
-
-
     // Unsupported field
-
     return 0;
 
 }
@@ -805,7 +743,7 @@ void manage_symlink(const char * district){
     char link_name[256];
     char target_path[256];
 
-    snprintf(link_name, sizeof(link_name), "active-reports-%s", district);
+    snprintf(link_name, sizeof(link_name), "active_reports-%s", district);
     snprintf(target_path, sizeof(target_path), "%s/reports.dat", district);
 
     struct stat st = {0};
@@ -828,6 +766,7 @@ void check_dangling_symlink(const char * link_name){
             if(stat(link_name, &target_st) == -1) {
                 if(errno == ENOENT){
                     fprintf(stderr, "Warning: The symlink '%s' is dangling (its target file is missing).",link_name);
+                    unlink(link_name);
                 } else{
                     perror("Warning: Error accessing symlink target");
                 }
