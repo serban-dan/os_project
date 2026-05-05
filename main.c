@@ -2,6 +2,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -30,6 +31,7 @@ enum Operation {
     remove_report,
     update_threshold,
     filter,
+    remove_district,
     op_invalid
 };
 
@@ -40,6 +42,7 @@ void view_function(const char* district, const char* role, const char* user, con
 void remove_report_function(const char* district, const char* role, const char* user, const char* target_id_string);
 void update_threshold_function(const char* district, const char* role, const char* user, const char* threshold_str);
 void filter_function(const char* district, const char* role, const char* user, int argc, char** argv);
+void remove_district_function(const char* district, const char* role);
 int parse_condition(const char* input, char* field, char* op, char* value);
 int match_condition(Record* r, const char* field, const char* op, const char* value);
 static int compare_numeric(long long rec_val, long long cond_val, const char* op);
@@ -790,6 +793,59 @@ void check_dangling_symlink(const char* link_name) {
     }
 }
 
+//REMOVE DISTRICT
+void remove_district_function(const char* district, const char* role) {
+    if(strcmp(role, "manager") != 0) {
+        fprintf(stderr, "Access Denied: Only managers can remove districts.\n");
+        return;
+    }
+
+    if(strchr(district, '/') != NULL || strstr(district, "..") != NULL) {
+        fprintf(stderr, "Security Error: Invalid district name.\n");
+        return;
+    }
+
+    if(!district_exists(district)) {
+        fprintf(stderr, "Error: District '%s' does not exist.\n", district);
+        return;
+    }
+
+    char link_name[256];
+    snprintf(link_name, sizeof(link_name), "active_reports-%s", district);
+
+    if (unlink(link_name) == -1 && errno != ENOENT) {
+        perror("Error removing symlink");
+        return;
+    }
+
+    pid_t pid = fork();
+
+    if(pid < 0) {
+        perror("Error forking process");
+        return;
+    }
+    else if(pid == 0) {
+        // Child process
+        execlp("rm", "rm", "-rf", district,(char *)NULL);
+        perror("Error executing rm command");
+        _exit(1);
+    } 
+    else {
+        // Parent process
+        int status;
+        waitpid(pid, &status, 0);
+
+        if(WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+            printf("District '%s' successfully removed.\n", district);
+        }
+        else {
+            fprintf(stderr, "Error: Failed to remove district '%s'.\n", district);
+        }
+    }
+
+    //Note: Cannot log this operation as the district (and thus its log file) may have been removed.
+}
+
 //MAIN
 int main(int argc, char** argv) {
     if (argc < 7) {
@@ -836,6 +892,9 @@ int main(int argc, char** argv) {
     }
     else if (strcmp(ops, "--filter") == 0) {
         op = filter;
+    }
+    else if (strcmp(ops, "--remove_district") == 0) {
+        op = remove_district;
     }
     else op = op_invalid;
 
@@ -886,6 +945,14 @@ int main(int argc, char** argv) {
             return 1;
         }
         filter_function(district_id, role, user, argc, argv);
+        break;
+    }
+    case remove_district: {
+        if (argc != 7) {
+            print_usage("--remove_district <district_id>");
+            return 1;
+        }
+        remove_district_function(district_id, role);
         break;
     }
     default:
