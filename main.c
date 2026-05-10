@@ -312,6 +312,11 @@ void add_function(const char* district, const char* role, const char* inspector_
 
     log_operation(district,role,inspector_name,action_log);
 
+    /*
+        As per the spec sheet, when using log_operation as an inspector we detect and refuse
+        "before writing to logged_district as an inspector, detect the restriction and refuse."
+    */
+
     printf("Report ID %d successfully added!\n", new_record.id);
     printf("Status: %s\n",action_log);
 }
