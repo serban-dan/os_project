@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -45,6 +46,7 @@ void filter_function(const char* district, const char* role, const char* user, i
 void remove_district_function(const char* district, const char* role);
 int parse_condition(const char* input, char* field, char* op, char* value);
 int match_condition(Record* r, const char* field, const char* op, const char* value);
+int notify_monitor();
 static int compare_numeric(long long rec_val, long long cond_val, const char* op);
 static int compare_string(const char* rec_val, const char* cond_val, const char* op);
 
@@ -299,8 +301,19 @@ void add_function(const char* district, const char* role, const char* inspector_
         _exit(1);
     }
     close(report_fd);
-    log_operation(district, role, inspector_name, "add");
+    
+    char action_log[128];
+
+    if(notify_monitor()){
+        snprintf(action_log,sizeof(action_log), "add [Monitor notified successfully]");
+    }else {
+        snprintf(action_log,sizeof(action_log),"add [Monitor could not be informed]");
+    }
+
+    log_operation(district,role,inspector_name,action_log);
+
     printf("Report ID %d successfully added!\n", new_record.id);
+    printf("Status: %s\n",action_log);
 }
 
 //LIST
@@ -844,6 +857,33 @@ void remove_district_function(const char* district, const char* role) {
     }
 
     //Note: Cannot log this operation as the district (and thus its log file) may have been removed.
+}
+
+//NOTIFY MONITOR
+int notify_monitor(){
+    int fd = open(".monitor_pid", O_RDONLY);
+    if(fd == -1){
+        return 0;
+    }
+
+    char buf[32] = {0};
+    ssize_t bytes_read = read(fd,buf,sizeof(buf) - 1);
+    close(fd);
+
+    if (bytes_read <= 0){
+        return 0;
+    }
+
+    pid_t monitor_pid = (pid_t)atoi(buf);
+    if(monitor_pid <= 0){
+        return 0;
+    }
+
+    if(kill(monitor_pid,SIGUSR1) == 0){
+        return 1;
+    }
+
+    return 0;
 }
 
 //MAIN
