@@ -182,7 +182,7 @@ void add_function(const char* district, const char* role, const char* inspector_
         //create dir
         if (directory_creation(district) == -1) {
             fprintf(stderr, "Fatal: Could not initialize directory.\n");
-            _exit(1);
+            _exit(EXIT_FAILURE);
         }
 
         //init ditrict.cfg
@@ -211,7 +211,7 @@ void add_function(const char* district, const char* role, const char* inspector_
     int report_fd = open(reports_path, O_RDWR | O_CREAT | O_APPEND, 0664);
     if (report_fd == -1) {
         perror("Fatal: Could not open reports.dat");
-        _exit(1);
+        _exit(EXIT_FAILURE);
     }
     chmod(reports_path, 0664);
 
@@ -223,7 +223,7 @@ void add_function(const char* district, const char* role, const char* inspector_
     struct stat st = { 0 };
     if (stat(reports_path, &st) == 0) {
         if (!check_permission(reports_path, role, 0, 1)) {
-            _exit(1);
+            _exit(EXIT_FAILURE);
         }
 
         if (st.st_size > 0) {
@@ -298,7 +298,7 @@ void add_function(const char* district, const char* role, const char* inspector_
     if (write(report_fd, &new_record, sizeof(Record)) == -1) {
         perror("Error: Could not write to reports.dat");
         close(report_fd);
-        _exit(1);
+        _exit(EXIT_FAILURE);
     }
     close(report_fd);
     
@@ -337,11 +337,10 @@ void list_function(const char* district, const char* role, const char* user) {
 
     char reports_path[256];
     snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
-    check_dangling_symlink(reports_path);
 
     struct stat st = { 0 };
     if (stat(reports_path, &st) == -1) {
-        perror("Error: Could not stat reports.dat");
+        printf("No reports found in district '%s' yet.\n",district);
         return;
     }
 
@@ -356,7 +355,7 @@ void list_function(const char* district, const char* role, const char* user) {
     struct tm* tm_info = localtime(&st.st_mtime);
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm_info);
 
-    printf("\n=== District: %s ===\n", district);
+    printf("\n==== District: %s ====\n", district);
     printf("File Info: %s | Size: %ld bytes | Last Modified: %s\n", perms, (long)st.st_size, time_str);
     printf("\n-----------------------------------------------------------\n");
 
@@ -408,7 +407,12 @@ void view_function(const char* district, const char* role, const char* user, con
 
     char reports_path[256];
     snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
-    check_dangling_symlink(reports_path);
+
+    struct stat st = { 0 };
+    if (stat(reports_path, &st) == -1) {
+        printf("No reports found in district '%s' yet.\n",district);
+        return;
+    }
 
     if (!check_permission(reports_path, role, 1, 0)) {
         return;
@@ -521,6 +525,7 @@ void remove_report_function(const char* district, const char* role, const char* 
     struct stat st = { 0 };
     fstat(fd, &st);
 
+    //truncate the file by exactly one record
     if (ftruncate(fd, st.st_size - sizeof(Record)) == -1) {
         perror("Error truncating file");
     }
@@ -604,6 +609,8 @@ int parse_condition(const char* input, char* field, char* op, char* value) {
         return 0;
     }
 
+    
+
     // Find the first colon
     const char* first_colon = strchr(input, ':');
     if (!first_colon) {
@@ -619,6 +626,7 @@ int parse_condition(const char* input, char* field, char* op, char* value) {
     // Calculate lengths of the field and operator substrings
     size_t field_len = first_colon - input;
     size_t op_len = second_colon - (first_colon + 1);
+    if(field_len >= 32 || op_len >= 4) return 0;
 
     // Extract the field and explicitly null-terminate
     strncpy(field, input, field_len);
@@ -629,7 +637,8 @@ int parse_condition(const char* input, char* field, char* op, char* value) {
     op[op_len] = '\0';
 
     // Extract the value (copies everything from the second colon to the null terminator)
-    strcpy(value, second_colon + 1);
+    strncpy(value, second_colon + 1,127);
+    value[127] = '\0';
     return 1;
 
 }
@@ -713,6 +722,12 @@ void filter_function(const char* district, const char* role, const char* user, i
 
     char reports_path[256];
     snprintf(reports_path, sizeof(reports_path), "%s/reports.dat", district);
+
+    struct stat st = { 0 };
+    if (stat(reports_path, &st) == -1) {
+        printf("No reports found in district '%s' yet.\n",district);
+        return;
+    }
 
     if (!check_permission(reports_path, role, 1, 0)) {
         return;
@@ -846,7 +861,7 @@ void remove_district_function(const char* district, const char* role) {
         // Child process
         execlp("rm", "rm", "-rf", district,(char *)NULL);
         perror("Error executing rm command");
-        _exit(1);
+        _exit(EXIT_FAILURE);
     } 
     else {
         // Parent process

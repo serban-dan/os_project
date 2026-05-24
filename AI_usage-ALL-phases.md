@@ -278,3 +278,11 @@ int match\_condition(Record \*r, const char \*field, const char \*op, const char
 
 * Here we can see that it performed even better, it did not want to repeat itself for the sake of the user (clean and maintainable code is always better) so it used helper functions. Also by type casting numerical comparisons it makes the helper function handle them safer for 32 bit integers. The intresting part comes to edge cases which are harder for humans to think of, such as "inspector:>:A" which would print all inspectors whose names start with B-Z, so it used strcmp as the base for the compare\_string helper function. Finally the strtoll was used to safely convert the timestamp to a 64 bit int.
 
+Other AI usage over the project includes various debbuging and edge case checks that are easy to miss.
+It was also useful in explaining concepts, functions and calls.
+
+* **Segmentation Fault Prevention:** Used AI to debug a silent crash in `city_hub.c`. The AI helped identify that passing continuous whitespace to `strtok` resulted in a `NULL` pointer being passed to `strcmp`. I implemented an `arg_count == 0` guard to safely catch this.
+* **Orphan & Zombie Process Management:** Consulted AI on how to handle background process termination. I also learned how to use a non-blocking `waitpid(-1, NULL, WNOHANG)` loop to silently reap `<defunct>` zombie processes without freezing the main interactive hub.
+* **Async-Signal Safety & Memory Flags:** Consulted AI on safely sharing a termination flag (`keep_running`) between the main execution loop and the `SIGINT` handler. The AI explained the necessity of declaring the flag as `volatile sig_atomic_t` to prevent compiler over-optimization and guarantee atomic memory access during asynchronous OS interrupts.
+* **I/O Buffering Traps:** When pipe outputs were delayed, the AI explained the difference between terminal Line-Buffering and pipe Block-Buffering, which led me to implement `setbuf(stdout, NULL)` to force real-time streaming for the monitor logs.
+* **Compiler Flags & POSIX Standards:** Used AI to understand why older standard C compilers throw implicit declaration warnings for modern system calls, leading to the inclusion of `#define _POSIX_C_SOURCE 200809L`.
